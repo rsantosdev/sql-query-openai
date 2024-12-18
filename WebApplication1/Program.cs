@@ -35,7 +35,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapPost("/query", async (
-    [FromBody] QueryRequest question, 
+    [FromBody] QueryRequest question,
     [FromServices] DatabaseService databaseService,
     [FromServices] QueryGenerationService queryGenerationService,
     [FromServices] UserResponseService userResponseService) =>
@@ -47,6 +47,21 @@ app.MapPost("/query", async (
         var result = await userResponseService.GenerateUserResponseAsync(question.Question, data);
         return result;
     });
+
+app.MapPost("/injection", async (
+    [FromBody] QueryRequest question,
+    [FromServices] DatabaseService databaseService,
+    [FromServices] QueryGenerationService queryGenerationService) =>
+{
+    var schema = await databaseService.GetSchemaAsync();
+    var query = await queryGenerationService.GenerateQueryAsync(question.Question, schema);
+    if (query.Contains("DELETE", StringComparison.InvariantCultureIgnoreCase))
+    {
+        return $"I'm sorry, I can't do that. \n {query}";
+    }
+    
+    return query;
+});
 
 app.Run();
 
