@@ -1,0 +1,7 @@
+@WebApplication1_HostAddress = http://localhost:5001
+
+POST {{WebApplication1_HostAddress}}/query/
+Content-Type: application/json
+{
+  "question": "What are top 10 products sold by each year? Show the product name instead of produc id"
+}
