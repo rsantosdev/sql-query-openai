@@ -11,8 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 
 builder.Services.AddSingleton<AzureOpenAIClient>(new AzureOpenAIClient(
-    new Uri(builder.Configuration["AzureOpenAi:Endpoint"]),
-    new AzureKeyCredential(builder.Configuration["AzureOpenAi:Key"])));
+    new Uri(builder.Configuration["AzureOpenAi:Endpoint"]!),
+    new AzureKeyCredential(builder.Configuration["AzureOpenAi:Key"]!)));
 
 builder.Services.AddSingleton<ChatClient>(sp =>
 {
@@ -41,9 +41,17 @@ app.MapPost("/query", async (
     [FromServices] UserResponseService userResponseService) =>
     {
         var schema = await databaseService.GetSchemaAsync();
-        var query = await queryGenerationService.GenerateQueryAsync(question.Question, schema);
+        
+        var queryGenerationResult = await queryGenerationService
+            .CreateProcess(question.Question, schema)
+            .ExecuteAsync();
 
-        var data = await databaseService.ExecuteQuery(query);
+        if (queryGenerationResult.HasError)
+        {
+            return queryGenerationResult.Message;
+        }
+
+        var data = await databaseService.ExecuteQuery(queryGenerationResult.Message);
         var result = await userResponseService.GenerateUserResponseAsync(question.Question, data);
         return result;
     });
@@ -54,13 +62,24 @@ app.MapPost("/injection", async (
     [FromServices] QueryGenerationService queryGenerationService) =>
 {
     var schema = await databaseService.GetSchemaAsync();
-    var query = await queryGenerationService.GenerateQueryAsync(question.Question, schema);
-    if (query.Contains("DELETE", StringComparison.InvariantCultureIgnoreCase))
-    {
-        return $"I'm sorry, I can't do that. \n {query}";
-    }
     
-    return query;
+    var queryGenerationResult = await queryGenerationService
+        .CreateProcess(question.Question, schema)
+        
+        // Save the question and result in DB in order to verify what the users are trying to do
+        .WithDbLogging() 
+        
+        // Check for SQL injection
+        .WithSqlInjectionBlocker()
+        
+        // Add more middlewares in order to prevent other types of attacks
+        // .WithOtherAttackBlockerOne()
+        // .WithOtherAttackBlockerTwo()
+        
+        // Execute the pipeline
+        .ExecuteAsync();
+
+    return queryGenerationResult.Message;
 });
 
 app.Run();

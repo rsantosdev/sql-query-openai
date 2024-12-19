@@ -2,19 +2,44 @@
 
 namespace WebApplication1.Services;
 
-public class QueryGenerationService(ChatClient chatClient, ILogger<QueryGenerationService> logger)
+public partial class QueryGenerationService(ChatClient chatClient, ILogger<QueryGenerationService> logger)
 {
-    public async Task<string> GenerateQueryAsync(string question, string databaseSchema)
+    private string _question = string.Empty;
+    private string _databaseSchema = string.Empty;
+    private readonly List<Func<Func<string, Task<(bool HasError, string Message)>>, Func<string, Task<(bool HasError, string Message)>>>> _middlewares = new();
+
+    public QueryGenerationService CreateProcess(string question, string databaseSchema)
+    {
+        _question = question;
+        _databaseSchema = databaseSchema;
+        return this;
+    }
+
+    public async Task<(bool HasError, string Message)> ExecuteAsync()
+    {
+        Func<string, Task<(bool HasError, string Message)>> next = async (question) => await GenerateQueryAsync(question, _databaseSchema);
+
+        foreach (var middleware in _middlewares.AsEnumerable().Reverse())
+        {
+            next = middleware(next);
+        }
+
+        var result = await next(_question);
+
+        return result;
+    }
+
+    private async Task<(bool HasError, string Message)> GenerateQueryAsync(string question, string databaseSchema)
     {
         try
         {
             ChatCompletion completion = await chatClient.CompleteChatAsync(string.Format(Prompt, question, databaseSchema));
-            return completion.Content[0].Text;
+            return (false, completion.Content[0].Text);
         }
         catch (Exception e)
         {
             logger.LogError(e, "Failed to generate query");
-            return "Unable to generate query";
+            return (true, "Unable to generate query");
         }
     }
 
@@ -24,7 +49,7 @@ public class QueryGenerationService(ChatClient chatClient, ILogger<QueryGenerati
             You must rely on the database schema defined in input schema section.
 
             Your response must always start with a SELECT or a WITH, you must never add other words before or after.
-            You must always specify the names of the columns and tables in square brackets []. 
+            You must always specify the names of the columns and tables in square brackets [].
             Your response must always consist of 1 query only.
             Answer in plain text without markdown or HTML.
 
@@ -34,7 +59,7 @@ public class QueryGenerationService(ChatClient chatClient, ILogger<QueryGenerati
             Input Question:
             {0}
 
-            Input tables schema:         
+            Input tables schema:
             {1}
         ";
 }
